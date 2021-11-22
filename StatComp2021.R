@@ -54,6 +54,7 @@ dati$gender<-dati$gender%>%as.factor
 dati$education<-dati$education%>%as.factor
 dati$marital<-dati$marital%>%as.factor
 dati$gen_health<-dati$gen_health%>%as.factor
+dati$income<-dati$income%>%as.factor
 
 ### First model ----
 # dalle descrittive osserviamo che Y non si distribuisce come una normale
@@ -80,30 +81,31 @@ p<-predict(lm1,dati) #serve dopo
 
 ### Controllo collinearità con TOL sotto 0,3 vengolo tolte -----
 target=dati[,c("drinks_day")]
-covariate=dati[,c(2,4:6)]
-covariate=as.matrix(covariate)
+covariate=dati[,c("income","education","bmi","age","race","grip_strength")]
+covariate=as.matrix(covariate); head(covariate)
 library(mctest)
 imcdiag(covariate,target) # non funziona
 imcdiag(lm1) # funziona 
+# abbiamo factor quindi non ha molto senso fare questa cosa 
 
 
 ### Second model ----
 # trasformo Y tramite log, tolgo variabili non significative
 # tolgo intercetta, non ha senso
-hist(dati$drinks_day) #esponenziale negativissima
+hist(dati$drinks_day) #esponenziale negativa
 lm2<-lm(drinks_day~0
         +age+gender
         +education+bmi+marital
         #+insurance+private_insur+medicare+medicaid
         +gen_health+iron, data=dati) 
-summary(lm2)
+summary(lm2) #gen health si può droppare
 
 par(mfrow=c(2,2)) 
 plot(lm2)
 par(mfrow=c(1,1)) 
 
 bptest(lm2) #presenta eteros. serve sistemare l'inferenza.
-coeftest(lm2, vcov=vcovHC(lm2)) #infatti suggerisce di togliere gen_health
+coeftest(lm2, vcov=vcovHC(lm2)) #infatti suggerisce di togliere gen_health e bmi
 
 imcdiag(lm2)
 
@@ -113,7 +115,7 @@ plot(p, dati$drinks_day) #brutto
 
 car::ncvTest(lm2) # permane eteroschedasticità
 
-### Modello con solo quantitative ----
+### Modello con solo income come categoriale ----
 lmq<-lm(drinks_day~0+
         +(age*income)+iron, data=dati) 
 summary(lmq)
@@ -125,16 +127,16 @@ car::ncvTest(lmq) #con questa versione l'eteros. e ne va se si lavora di più
 # nel modello successivo aggiungo un factor
 coeftest(lmq, vcov=vcovHC(lmq)) 
 
-### Modello con solo un factor ----
+### Modello con due factor ----
 lmq1<-lm(log(drinks_day+1)~0
-        +exp(age)+exp(income)+iron+gender, data=dati) 
+        +exp(age)+income+iron+gender, data=dati) 
 summary(lmq1)
 
 par(mfrow=c(2,2)) 
 plot(lmq1)
 par(mfrow=c(1,1)) 
 car::ncvTest(lmq1) # ricompare
-# riprendere più avanti lo studio del modello con solo quantitativi
+# riprendere più avanti lo studio del modello con solo 1 factor
 
 ### Model with interactions ----
 lmi<-lm(drinks_day~0
@@ -159,14 +161,13 @@ n_used # be careful!!!
 cutoff <- 4/(n_used-length(lm2$coefficients)-2)
 cutoff
 Noinflu=data.frame(dati[cooksd < cutoff, ])  # influential row numbers
+
 hist(Noinflu$drinks_day)
 plot(ecdf(Noinflu$drinks_day))
 
 lminf = lm(drinks_day~0
-           +age*education+gender
-           +marital
-           +bmi
-           +gen_health+iron, data=Noinflu)
+           +age+education+gender
+           +marital+iron, data=Noinflu)
 summary(lminf)
 
 par(mfrow=c(2,2)) 
@@ -216,9 +217,8 @@ lmc<-lm(drinks_day_modificati~0
         +age+education
         +gender
         +marital
-        +bmi
         +iron, data=Noinflu) 
-summary(lmc) #netto miglioramento, droppo l'interazione, strano
+summary(lmc) #netto miglioramento
 
 par(mfrow=c(2,2)) 
 plot(lmc)
@@ -233,9 +233,7 @@ library(gam)
 gam1<-gam(drinks_day_modificati~0
           +s(age)+education
           +gender
-          +marital
-          +s(bmi)
-          +gen_health+s(iron), data=Noinflu)
+          +marital+s(iron), data=Noinflu)
 summary(gam1)
 par(mfrow=c(2,2)) 
 plot(gam1)
@@ -243,21 +241,22 @@ par(mfrow=c(1,1))
 # dubbio su age
 
 lmg<-lm(drinks_day_modificati~0
-        +exp(age)+education
+        +log(age)+education
         +gender
         +marital
-        +bmi
-        +gen_health+iron, data=Noinflu) 
-summary(lmg) 
+        +iron, data=Noinflu) 
+summary(lmg) #mettendo race cambia nulla anche se significativo
 
 par(mfrow=c(2,2)) 
 plot(lmg)
 par(mfrow=c(1,1)) 
 
+drop1(lmg)
+
 bptest(lmg) #permane eteros
 #Inutili trasformate sulle x
 
-anova(lmc,lmg) #conferma inutilità
+anova(lmc,lmg) #non si può fare
 
 ### model selection ----
 library(MASS)
@@ -281,7 +280,7 @@ cutoff2
 Noinflu2=data.frame(dati[cooksd2 < cutoff2, ])  # influential row numbers
 
 lmqgni<-lm(drinks_day~0
-           +(age*income)+(iron), data= Noinflu2)
+           +age+income+(iron), data= Noinflu2)
 summary(lmqgni) 
 
 par(mfrow=c(2,2)) 
@@ -298,7 +297,7 @@ lambdaq=boxcoxregq$x[which.max(boxcoxregq$y)]
 lambdaq 
 
 lmqbc<-lm(drinks_day^lambdaq~0
-        +(age*income)+iron, data=Noinflu2) 
+        +age+income+iron, data=Noinflu2) 
 summary(lmqbc)
 
 par(mfrow=c(2,2)) 
@@ -309,7 +308,7 @@ car::ncvTest(lmqbc) #eteros, usiamo GAM
 
 # GAM
 gamq<-gam(drinks_day^lambdaq~0
-        +s(age*income)+s(iron), data=Noinflu2) 
+        +s(age)+income+s(iron), data=Noinflu2) 
 summary(gamq)
 
 library(akima)
@@ -321,7 +320,7 @@ par(mfrow=c(1,1))
 # iron natural spline
 
 lmqg<-lm(drinks_day^lambdaq~0
-          +log(age*income)+ns(iron), data=Noinflu2) 
+          +log(age)+income+(iron), data=Noinflu2) 
 summary(lmqg)
 
 par(mfrow=c(2,2)) 
@@ -341,7 +340,7 @@ bptest(lmqg) # robusto
 # modello robusto con lmrob
 library(robust)
 lmrob1<-lmRob(drinks_day^lambdaq~0
-                 +log(age*income)+(iron), data=dati)
+                 +exp(age)+income+(iron), data=dati)
 summary(lmrob1)
 
 par(mfrow=c(2,2)) 
@@ -361,8 +360,10 @@ plot(pf, dati$drinks_day)
 ### logistico: drinkdays >= 52 come soglia critica ----
 table(dati$drinks_day); median(dati$drinks_day)
 drink_dangerous<-ifelse((dati$drinks_day)>6,1,0); table(drink_dangerous)
-glm1<-glm(drink_dangerous~0+
-                  log(age*income)+(iron)
+glm1<-glm(drink_dangerous~0+log(age)+education
+          +gender
+          +marital
+          +iron
           , family="binomial", data=dati)
 
 summary(glm1);glm1$null.deviance
@@ -383,9 +384,9 @@ tail(dati$predicted_p)
 
 # predicted target
 hist(dati$predicted_p,breaks=20)
-# faccio tuning soglia a 0.14 altrimenti mi prevede troppi 1 rispetto alla table di sopra
-dati$predicted_y <- ifelse(dati$predicted_p > 0.14,1,0); table(dati$predicted_y)
-# 211 uni contro i 202 di sopra
+# faccio tuning soglia a 0.20 altrimenti mi prevede troppi 1 rispetto alla table di sopra
+dati$predicted_y <- ifelse(dati$predicted_p > 0.2,1,0); table(dati$predicted_y)
+# 184 uni contro i 202 di sopra
 
 length(drink_dangerous)
 length(dati$predicted_y)
