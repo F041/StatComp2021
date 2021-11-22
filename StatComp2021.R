@@ -159,6 +159,8 @@ n_used # be careful!!!
 cutoff <- 4/(n_used-length(lm2$coefficients)-2)
 cutoff
 Noinflu=data.frame(dati[cooksd < cutoff, ])  # influential row numbers
+hist(Noinflu$drinks_day)
+plot(ecdf(Noinflu$drinks_day))
 
 lminf = lm(drinks_day~0
            +age*education+gender
@@ -264,50 +266,6 @@ step <- stepAIC(lmc, direction="both")
 #Visti i problemi di eteros., conviene cambiare approccio.
 
 ### Riprendo il solo quantativo: ultimo modello ----
-# BC
-boxcoxregq<-boxcox(lmq)
-title("Lambda")
-lambdaq=boxcoxregq$x[which.max(boxcoxregq$y)]
-lambdaq 
-
-lmqbc<-lm(drinks_day^lambdaq~0
-        +(age*income)+iron, data=dati) 
-summary(lmqbc)
-
-par(mfrow=c(2,2)) 
-plot(lmqbc)
-par(mfrow=c(1,1)) 
-car::ncvTest(lmqbc) #eteros, usiamo GAM
-
-
-# GAM
-gamq<-gam(drinks_day^lambdaq~0
-        +s(age*income)+s(iron), data=dati) 
-summary(gamq)
-
-library(akima)
-par(mfrow=c(2,2)) 
-plot(gamq)
-par(mfrow=c(1,1)) 
-
-# age*iron exponential/log
-
-lmqg<-lm(drinks_day^lambdaq~0
-          +log(age*income)+(iron), data=dati) 
-summary(lmqg)
-
-par(mfrow=c(2,2)) 
-plot(lmqg)
-par(mfrow=c(1,1)) 
-bptest(lmqg) 
-
-# Controllo ipotesi
-
-#Prima
-bptest(lm1)
-#Dopo
-bptest(lmqg) # robusto
-
 # Vediamo con influ che succede
 influencePlot(lmqg,  main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
 
@@ -322,16 +280,63 @@ cutoff2 <- 4/(n_used2-length(lmqg$coefficients)-2)
 cutoff2
 Noinflu2=data.frame(dati[cooksd2 < cutoff2, ])  # influential row numbers
 
-lmqgni<-lm(drinks_day^lambdaq~0
-         +log(age*income)+(iron), data= Noinflu2)
-summary(lmqgni) #il modello peggiora
+lmqgni<-lm(drinks_day~0
+           +(age*income)+(iron), data= Noinflu2)
+summary(lmqgni) 
 
 par(mfrow=c(2,2)) 
 plot(lmqgni)
 par(mfrow=c(1,1)) 
 
-bptest(lmqgni) #meno confidenza su assenza eteroschedasticità
-# quindi conviene usare lmqg come modello finale 
+bptest(lmqgni) 
+
+
+# BC
+boxcoxregq<-boxcox(lmqgni)
+title("Lambda")
+lambdaq=boxcoxregq$x[which.max(boxcoxregq$y)]
+lambdaq 
+
+lmqbc<-lm(drinks_day^lambdaq~0
+        +(age*income)+iron, data=Noinflu2) 
+summary(lmqbc)
+
+par(mfrow=c(2,2)) 
+plot(lmqbc)
+par(mfrow=c(1,1)) 
+car::ncvTest(lmqbc) #eteros, usiamo GAM
+
+
+# GAM
+gamq<-gam(drinks_day^lambdaq~0
+        +s(age*income)+s(iron), data=Noinflu2) 
+summary(gamq)
+
+library(akima)
+par(mfrow=c(2,2)) 
+plot(gamq)
+par(mfrow=c(1,1)) 
+
+# age*iron exponential/log
+# iron natural spline
+
+lmqg<-lm(drinks_day^lambdaq~0
+          +log(age*income)+ns(iron), data=Noinflu2) 
+summary(lmqg)
+
+par(mfrow=c(2,2)) 
+plot(lmqg)
+par(mfrow=c(1,1)) 
+bptest(lmqg) 
+
+# Controllo ipotesi
+
+#Prima
+bptest(lm1)
+#Dopo
+bptest(lmqg) # robusto
+
+
 
 # modello robusto con lmrob
 library(robust)
