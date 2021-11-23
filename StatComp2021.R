@@ -1,10 +1,10 @@
 setwd("C:/Users/Gabriele/Documents/GitHub/StatComp2021")
 load("StatComp2021.RData")
 
-# Vogliamo capire cosa spiega la frequenza delle bevute, drink days
-dati<-read.csv("https://raw.githubusercontent.com/F041/StatComp2021/main/Merged_Unique_Names_V2.csv")
-head(data)
-
+# Dati: vogliamo capire cosa spiega la frequenza di drinks_day ----
+dati<-read.csv("https://raw.githubusercontent.com/F041/StatComp2021/main/Merged_Unique_Names_V2.csv",
+               sep=",", dec = ".",  
+               stringsAsFactors=TRUE, na.strings=c("NA","NaN"))
 ### Librerie ----
 library(forecast)
 library(MASS)
@@ -18,6 +18,7 @@ library(gvlma)
 library(lmtest)
 library(sandwich)
 library(car)
+library(dplyr)
 options(scipen=999)
 
 ### Descriptives ----
@@ -26,198 +27,129 @@ descr<-skim(dati) #non userò le covariate con più missing >2000
 descr
 # non user num colonna: 5,6,10:14, 16, 18:24 ....
 
-hist(dati$age)
-plot(ecdf(dati$age)) #mi serve per capire se ha senso mettere delle età nel modello
+hist(dati$drinks_day) #di sicuro non una normale
 
-
-
-# posso automatizzare?
-library(dplyr)
-selezione<-drop_na(dati) #significa che tutte le righe hanno almeno un missing...
-
-hist(dati$drinks_day) #esponenziale negativissima
-plot(ecdf(dati$drinks_day))#Funzione di ripartizione. Un outilier a 80, poi 60
-cor(dati[,c("income","age","drinks_day")]) #NAs give issues
-pairs((dati[,c("income","age","drinks_day","bmi")]),panel = panel.smooth)
-
-# Cosa succede se metto dentro cose con tanti NA?
-pairs((dati[,c("military_insur","drinks_day")]),panel = panel.smooth)
-cor(dati[,c("military_insur","drinks_day")])
-
-cor(dati[,4:30])
-
-cor(dati[,c("gen_health","iron")]) #controllo per gen_health, iron 
-# troppi NA?
-
-### Modifico variabili ----
+### Cambio proprietà dati: tanti factor non riconosciuti come tali -----
+#personal
 dati$gender<-dati$gender%>%as.factor
 dati$education<-dati$education%>%as.factor
 dati$marital<-dati$marital%>%as.factor
 dati$gen_health<-dati$gen_health%>%as.factor
 dati$income<-dati$income%>%as.factor
+dati$race<-dati$race%>%as.factor
+dati$smoker<-dati$smoker%>%as.factor
+dati$diabetes<-dati$diabetes%>%as.factor
+dati$cancer<-dati$cancer%>%as.factor
+dati$depression<-dati$depression%>%as.factor
+dati$hypertension<-dati$hypertension%>%as.factor
 
-### First model ----
-# dalle descrittive osserviamo che Y non si distribuisce come una normale
-# trasformeremo dopo
-formula <- paste(colnames(dati), collapse="','")
-lm1<-lm(drinks_day~diabetes+as.factor(depression)
-        +age+gender+race+grip_strength  
-        +education+bmi+marital+income+as.factor(household_size)
-        +insurance
-        #+private_insur+medicare+medicaid
-        #+smoker
-        +gen_health+iron, data=dati) 
-summary(lm1)
 
+#family
+dati$household_size<-dati$household_size%>%as.factor
+dati$fam_savings<-dati$fam_savings%>%as.factor
+
+#assicuraziomi
+dati$insurance<-dati$insurance%>%as.factor
+dati$private_insur<-dati$private_insur%>%as.factor
+dati$medicare<-dati$medicare%>%as.factor
+dati$medicaid<-dati$medicaid%>%as.factor
+dati$military_insur<-dati$military_insur%>%as.factor
+dati$no_insurance<-dati$no_insurance%>%as.factor
+
+
+### Divisione tra continue e qualitative ----
+
+numeric <- dati%>% dplyr::select_if(is.numeric)
+colnames(numeric)
+skim(numeric)
+numeric=numeric[,-c(1,3,4,5,6,7,8,9)] #tolgo factor
+colnames(numeric)
+skim(numeric) #tolgo colonna c(-2,-(7:8),-(40:41),-43), troppi NA
+numeric=numeric[,c(-2,-(7:8),-(40:41),-43)];skim(numeric)
+
+fac <- dati%>% dplyr::select_if(is.factor)
+colnames(fac)
+fac=fac[,-c(1:2)]
+
+education<-fac$education
+merge<-cbind(numeric,education); skim(merge)
+
+# collinearitità
+# sia per x continue (plot, tol, vif), sia per x qualitative (chi quadri)
+y = as.numeric(dati$drinks_day)
+X<-numeric
+X=as.matrix(X)
+imcdiag(X,y) #non funziona
+
+library(corrgram)
+corrgram(numeric, use = "complete.obs", lower.panel = panel.cor, cex=1, cex.labels = 1)
+# bmi, altezzza e peso risultano sicuramente collineari, a causa della formula
+
+### Modelli quantiativi ----
+## First model ---
+lm = lm(drinks_day ~ ., data=numeric)
+summary(lm)
+coeftest(lm, vcov=vcovHC(lm)) #si può droppare molto
+p<-predict(lm,numeric) #serve dopo
+
+## Second model ---
+lm2 = lm(drinks_day ~0+ age+ s_cotinine +wbc +hgb   +t_protein     
+         +t_chol  +bmi  +cr   , data=numeric)
+summary(lm2)
+bptest(lm2)
+coeftest(lm2, vcov=vcovHC(lm2)) # droppo t_protein  e cr          
+
+## Third model --
+lm3 = lm(drinks_day ~0+ age+ s_cotinine +wbc 
+         +hgb        +t_chol    , data=numeric)
+summary(lm3)
+bptest(lm3) # ancora eteros.
+coeftest(lm3, vcov=vcovHC(lm3)) 
+
+## Third model senza age --
+lm3na = lm(drinks_day ~0+  s_cotinine +wbc 
+           +hgb        +t_chol    , data=numeric)
+summary(lm3na)
 par(mfrow=c(2,2)) 
-plot(lm1)
+plot(lm3na)
 par(mfrow=c(1,1)) 
+bptest(lm3na) # age dà problemi. Togliendolo scompare eteros.
+coeftest(lm3na, vcov=vcovHC(lm3na)) 
 
-bptest(lm1) #presenta eteros. serve sistemare l'inferenza.
-coeftest(lm1, vcov=vcovHC(lm1)) 
-
-
-p<-predict(lm1,dati) #serve dopo
-
-### Controllo collinearità con TOL sotto 0,3 vengolo tolte -----
-target=dati[,c("drinks_day")]
-covariate=dati[,c("income","education","bmi","age","race","grip_strength")]
-covariate=as.matrix(covariate); head(covariate)
-library(mctest)
-imcdiag(covariate,target) # non funziona
-imcdiag(lm1) # funziona 
-# abbiamo factor quindi non ha molto senso fare questa cosa 
-
-
-### Second model ----
-# trasformo Y tramite log, tolgo variabili non significative
-# tolgo intercetta, non ha senso
-hist(dati$drinks_day) #esponenziale negativa
-lm2<-lm(drinks_day~0
-        +age+gender
-        +education+bmi+marital
-        #+insurance+private_insur+medicare+medicaid
-        +gen_health+iron, data=dati) 
-summary(lm2) #gen health si può droppare
-
-par(mfrow=c(2,2)) 
-plot(lm2)
-par(mfrow=c(1,1)) 
-
-bptest(lm2) #presenta eteros. serve sistemare l'inferenza.
-coeftest(lm2, vcov=vcovHC(lm2)) #infatti suggerisce di togliere gen_health e bmi
-
-imcdiag(lm2)
-
-
-p<-predict(lm1,dati)
-plot(p, dati$drinks_day) #brutto
-
-car::ncvTest(lm2) # permane eteroschedasticità
-
-### Modello con solo income come categoriale ----
-lmq<-lm(drinks_day~0+
-        +(age*income)+iron, data=dati) 
-summary(lmq)
-
-par(mfrow=c(2,2)) 
-plot(lmq)
-par(mfrow=c(1,1)) 
-car::ncvTest(lmq) #con questa versione l'eteros. e ne va se si lavora di più
-# nel modello successivo aggiungo un factor
-coeftest(lmq, vcov=vcovHC(lmq)) 
-
-### Modello con due factor ----
-lmq1<-lm(log(drinks_day+1)~0
-        +exp(age)+income+iron+gender, data=dati) 
-summary(lmq1)
-
-par(mfrow=c(2,2)) 
-plot(lmq1)
-par(mfrow=c(1,1)) 
-car::ncvTest(lmq1) # ricompare
-# riprendere più avanti lo studio del modello con solo 1 factor
-
-### Model with interactions ----
-lmi<-lm(drinks_day~0
-        +age*education*gender+marital*bmi+iron, data=dati) 
-summary(lmi) #inutile e pesante
-
-
-
-### Osservazioni influenti? Codice lovaglio -----
-# outliers
-
-influencePlot(lm2,  main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
-
-cooksd <- cooks.distance(lm2)
+## Valori inf e modello 
+influencePlot(lm3na,  main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
+cooksd <- cooks.distance(lm3na)
 cooksda=data.frame(cooksd)
-
 # cutoff of cookD  4/(n-k).. NB n should be n used in the model!!!
-
-n_used=length(lm2$residuals)
-n_used # be careful!!! 
-
-cutoff <- 4/(n_used-length(lm2$coefficients)-2)
+n_used=length(lm3na$residuals)
+n_used # 
+cutoff <- 4/(n_used-length(lm3na$coefficients)-2)
 cutoff
-Noinflu=data.frame(dati[cooksd < cutoff, ])  # influential row numbers
+Noinflu=data.frame(numeric[cooksd < cutoff, ])  # influential row numbers
 
-hist(Noinflu$drinks_day)
-plot(ecdf(Noinflu$drinks_day))
+hist(Noinflu$drinks_day) # ancora esponenziale negativa
+plot(ecdf(Noinflu$drinks_day)) # almeno non abbiamo outlier e >15
 
-lminf = lm(drinks_day~0
-           +age+education+gender
-           +marital+iron, data=Noinflu)
-summary(lminf)
+lminf = lm(drinks_day ~0+  s_cotinine +wbc 
+           +hgb        +t_chol    , data=Noinflu)
+summary(lminf) #migliora
+#ma
 
 par(mfrow=c(2,2)) 
 plot(lminf)
 par(mfrow=c(1,1)) 
 
-bptest(lminf) #presenta eteros. serve sistemare l'inferenza.
-# migliora il modello
+bptest(lminf) # viene fuori eteros, non conviene
 
-### Distanze di cook valori influenti: versione Pennoni ----
-require(faraway)
-cook <- cooks.distance(lm1)
-halfnorm(cook, ylab = "distanza di Cook") # 1,3
-### Punti di leva ----
-halfnorm(hatvalues(lm1), main="Punti di leva") #2318,2110
-
-### Modello senza certe variabili -----
-lmr<-lm(log(drinks_day+1)~0
-        +age+gender+ 
-          +education+bmi+marital
-        #+insurance+private_insur+medicare+medicaid
-        +gen_health+iron, data=dati[,c(-1,-3,-2318,-2110)]) 
-summary(lmr)
-
-par(mfrow=c(2,2)) 
-plot(lmr)
-par(mfrow=c(1,1)) 
-
-anova(lm2,lmr) # non conviene usare l'ultimo modello 
-
-###  Inferenza con stand err robusti: da rivedere ----
-
-
-
-coeftest(lm2, vcov=vcovHC(lm2)) 
-
-### Box Cox----
-library(MASS)
-boxcoxreg1<-boxcox(lminf)
+## Box Cox---
+boxcoxreg1<-boxcox(lminf) 
 title("Lambda")
 lambda=boxcoxreg1$x[which.max(boxcoxreg1$y)]
-lambda # suggerisce trasformata y -0.3434343
-
-dati$drinks_day_modificati<-dati$drinks_day^lambda
+lambda # suggerisce trasformata y -0.303
+numeric$drinks_day_modificati<-numeric$drinks_day^lambda
 Noinflu$drinks_day_modificati<-Noinflu$drinks_day^lambda
-lmc<-lm(drinks_day_modificati~0
-        +age+education
-        +gender
-        +marital
-        +iron, data=Noinflu) 
+lmc<-lm(drinks_day_modificati ~0+  s_cotinine +wbc 
+        +hgb        +t_chol    , data=Noinflu) 
 summary(lmc) #netto miglioramento
 
 par(mfrow=c(2,2)) 
@@ -225,27 +157,25 @@ plot(lmc)
 par(mfrow=c(1,1)) 
 
 bptest(lmc) #permane eteros
-coeftest(lmc, vcov=vcovHC(lmc)) 
-anova(lm2,lmc)
+coeftest(lmc, vcov=vcovHC(lmc))
 
-### Modello con trasformate ----
+
+## Modello con trasformate ---
 library(gam)
-gam1<-gam(drinks_day_modificati~0
-          +s(age)+education
-          +gender
-          +marital+s(iron), data=Noinflu)
+gam1<-gam(drinks_day~0+ + s(s_cotinine) +s(wbc) 
+          +s(hgb)        +s(t_chol)    , data=numeric)
 summary(gam1)
 par(mfrow=c(2,2)) 
 plot(gam1)
 par(mfrow=c(1,1)) 
-# dubbio su age
+# s_cotinine: log
+# hgb: parabola
 
-lmg<-lm(drinks_day_modificati~0
-        +log(age)+education
-        +gender
-        +marital
-        +iron, data=Noinflu) 
-summary(lmg) #mettendo race cambia nulla anche se significativo
+lmg<-lm(drinks_day~0 
+        + log(s_cotinine) 
+        + (wbc) 
+        +I(hgb^2) +t_chol, data=Noinflu) 
+summary(lmg)
 
 par(mfrow=c(2,2)) 
 plot(lmg)
@@ -253,147 +183,82 @@ par(mfrow=c(1,1))
 
 drop1(lmg)
 
-bptest(lmg) #permane eteros
-#Inutili trasformate sulle x
+bptest(lmg) #torna eteros.
 
-anova(lmc,lmg) #non si può fare
-
-### model selection ----
-library(MASS)
-step <- stepAIC(lmc, direction="both")
-# abbiamo già il modello migliore. 
-#Visti i problemi di eteros., conviene cambiare approccio.
-
-### Riprendo il solo quantativo: ultimo modello ----
-# Vediamo con influ che succede
-influencePlot(lmqg,  main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
-
-cooksd2 <- cooks.distance(lmqg)
-cooksda=data.frame(cooksd2)
-
-# cutoff of cookD  4/(n-k).. NB n should be n used in the model!!!
-
-n_used2=length(lmqg$residuals)
-n_used2 
-cutoff2 <- 4/(n_used2-length(lmqg$coefficients)-2)
-cutoff2
-Noinflu2=data.frame(dati[cooksd2 < cutoff2, ])  # influential row numbers
-
-lmqgni<-lm(drinks_day~0
-           +age+income+(iron), data= Noinflu2)
-summary(lmqgni) 
-
+## Quarto modello con trasformata log sulla y causa sua distr --
+lm3nay = lm(log(drinks_day+1) ~0+  s_cotinine +wbc 
+            +hgb        +t_chol    , data=numeric)
+summary(lm3nay)
 par(mfrow=c(2,2)) 
-plot(lmqgni)
+plot(lm3nay)
 par(mfrow=c(1,1)) 
+bptest(lm3nay) # eteros. 
+coeftest(lm3nay, vcov=vcovHC(lm3na)) 
 
-bptest(lmqgni) 
-
-
-# BC
-boxcoxregq<-boxcox(lmqgni)
-title("Lambda")
-lambdaq=boxcoxregq$x[which.max(boxcoxregq$y)]
-lambdaq 
-
-lmqbc<-lm(drinks_day^lambdaq~0
-        +age+income+iron, data=Noinflu2) 
-summary(lmqbc)
-
+## Quinto modello con education ---
+lm5 = lm(drinks_day ~0+  s_cotinine +wbc 
+         +hgb        +t_chol  +education  , data=merge)
+summary(lm5)
 par(mfrow=c(2,2)) 
-plot(lmqbc)
+plot(lm5)
 par(mfrow=c(1,1)) 
-car::ncvTest(lmqbc) #eteros, usiamo GAM
+bptest(lm5)
+coeftest(lm5, vcov=vcovHC(lm3na)) 
 
 
-# GAM
-gamq<-gam(drinks_day^lambdaq~0
-        +s(age)+income+s(iron), data=Noinflu2) 
-summary(gamq)
-
-library(akima)
-par(mfrow=c(2,2)) 
-plot(gamq)
-par(mfrow=c(1,1)) 
-
-# age*iron exponential/log
-# iron natural spline
-
-lmqg<-lm(drinks_day^lambdaq~0
-          +log(age)+income+(iron), data=Noinflu2) 
-summary(lmqg)
-
-par(mfrow=c(2,2)) 
-plot(lmqg)
-par(mfrow=c(1,1)) 
-bptest(lmqg) 
-
-# Controllo ipotesi
-
-#Prima
-bptest(lm1)
-#Dopo
-bptest(lmqg) # robusto
-
-
-
-# modello robusto con lmrob
-library(robust)
-lmrob1<-lmRob(drinks_day^lambdaq~0
-                 +exp(age)+income+(iron), data=dati)
-summary(lmrob1)
-
-par(mfrow=c(2,2)) 
-plot(lmrob1)
-par(mfrow=c(1,1))
-bptest(lmrob1)
-
-
+### Riepilogo test ----
+bptest(lm)
+bptest(lm3na) #robusto anche se spiega meno della metà 
 
 ### Confronto modello iniziale-finale ----
-pf<-predict(lmqg,dati)
+pf<-predict(lm3na,numeric)
 par(mfrow=c(1,2)) 
-plot(p,dati$drinks_day)
-plot(pf, dati$drinks_day)
+plot(p,numeric$drinks_day)
+#abline(a = 0, b = 1, col = "red")
+plot(pf, numeric$drinks_day)
+#abline(a = 0, b = 1, col = "red")
 
-
-### logistico: drinkdays >= 52 come soglia critica ----
-table(dati$drinks_day); median(dati$drinks_day)
-drink_dangerous<-ifelse((dati$drinks_day)>6,1,0); table(drink_dangerous)
-glm1<-glm(drink_dangerous~0+log(age)+education
-          +gender
-          +marital
-          +iron
-          , family="binomial", data=dati)
+### Logistico----
+table(numeric$drinks_day); median(numeric$drinks_day)
+# drinkdays >6  come soglia critica altrimenti serve a nulla
+drink_dangerous<-ifelse((numeric$drinks_day)>6,1,0); table(drink_dangerous)
+glm1<-glm(drink_dangerous~ s_cotinine +wbc 
+          +hgb        +t_chol  +education 
+          , family="binomial", data=merge)
 
 summary(glm1);glm1$null.deviance
 glm1$deviance
-drop1(glm1, test="LRT")
+drop1(glm1, test="LRT") 
+#droppo  s_cotinine, la non significativa
+# per dettagli: https://rstudio-pubs-static.s3.amazonaws.com/2899_a9129debf6bd47d2a0501de9c0dc583d.html
 
-exp(glm1$coefficients)
+glm2<-glm(drink_dangerous~ wbc 
+          +t_chol   +education + hgb  
+          , family="binomial", data=merge)
+summary(glm2)
+drop1(glm2, test="LRT") #ok
 
-r2=1-(glm1$deviance/glm1$null.deviance) # null dev / resid
-r2
+exp(glm2$coefficients)
+
+r2=1-(glm2$deviance/glm2$null.deviance) # null dev / resid
+r2 #quasi nullo
 
 library(coefplot)
-coefplot(glm1, intercept=FALSE)
+coefplot(glm2, intercept=FALSE)
 
 # PREDICTION
-dati$predicted_p <- predict(glm1, dati, type="response") 
-tail(dati$predicted_p)
+merge$predicted_p <- predict(glm2, merge, type="response") 
+tail(merge$predicted_p)
 
 # predicted target
-hist(dati$predicted_p,breaks=20)
-# faccio tuning soglia a 0.20 altrimenti mi prevede troppi 1 rispetto alla table di sopra
-dati$predicted_y <- ifelse(dati$predicted_p > 0.2,1,0); table(dati$predicted_y)
-# 184 uni contro i 202 di sopra
+hist(merge$predicted_p)
+# faccio tuning soglia a 0.1
+merge$predicted_y <- ifelse(merge$predicted_p > 0.1,1,0); table(merge$predicted_y)
+# 424 uni contro i 202 di sopra
 
 length(drink_dangerous)
-length(dati$predicted_y)
-cm<-100*(table(observed=drink_dangerous, predicted=dati$predicted_y)/nrow(dati)); cm
+length(merge$predicted_y)
+cm<-100*(table(observed=drink_dangerous, predicted=merge$predicted_y)/nrow(merge)); cm
 
 accuracy=cm[1,1]+cm[2,2]
 accuracy #scadente 
-
-
-
