@@ -76,10 +76,10 @@ merge<-cbind(numeric,education); skim(merge)
 
 # collinearitità
 # sia per x continue (plot, tol, vif), sia per x qualitative (chi quadri)
-y = as.numeric(dati$drinks_day)
-X<-numeric
-X=as.matrix(X)
-imcdiag(X,y) #non funziona
+y<- (numeric["drinks_day"]); head(y); is.atomic(y)
+X<-numeric; is.atomic(X)
+X<-as.matrix(X); X; is.atomic(X)
+imcdiag(X,y, na.rm = TRUE) #non funziona
 
 library(corrgram)
 corrgram(numeric, use = "complete.obs", lower.panel = panel.cor, cex=1, cex.labels = 1)
