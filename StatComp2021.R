@@ -89,7 +89,12 @@ corrgram(numeric, use = "complete.obs", lower.panel = panel.cor, cex=1, cex.labe
 ## First model ---
 lm = lm(drinks_day ~ ., data=numeric)
 summary(lm)
-coeftest(lm, vcov=vcovHC(lm)) #si può droppare molto
+par(mfrow=c(2,2)) 
+plot(lm)
+par(mfrow=c(1,1)) 
+
+
+oeftest(lm, vcov=vcovHC(lm)) #si può droppare molto
 p<-predict(lm,numeric) #serve dopo
 
 ## Second model ---
@@ -205,6 +210,11 @@ par(mfrow=c(1,1))
 bptest(lm5)
 coeftest(lm5, vcov=vcovHC(lm3na)) 
 
+## Sesto modello con robust base
+library(robustbase) 
+lmrobfit <- lmrob(drinks_day ~0+  s_cotinine +wbc 
+                  +hgb        +t_chol    , data=numeric) 
+summary(lmrobfit) 
 
 ### Riepilogo test ----
 bptest(lm)
