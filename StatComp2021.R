@@ -121,6 +121,8 @@ par(mfrow=c(1,1))
 bptest(lm3na) # age dà problemi. Togliendolo scompare eteros.
 coeftest(lm3na, vcov=vcovHC(lm3na)) 
 
+imcdiag(lm3na)#nessun problema
+
 ## Valori inf e modello 
 influencePlot(lm3na,  main="Influence Plot", sub="Circle size is proportial to Cook's Distance" )
 cooksd <- cooks.distance(lm3na)
